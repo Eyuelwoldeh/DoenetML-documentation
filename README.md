@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # DoenetML Documentation
 
 > Comprehensive guide to building interactive content with DoenetML
