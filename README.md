@@ -13,8 +13,12 @@ DoenetML is a markup language for creating interactive educational content.
 ## Quick Start
 
 New to DoenetML? Start here:
-- [Installation Guide](installation.md) - Get set up in 5 minutes
-- [Quick Start Tutorial](quickstart.md) - Build your first interactive element
+
+- **Educators:**
+  - [Quick Start Tutorial](quickstart.md) — Build your first interactive element
+
+- **Developers:**
+  - [Component Building Tutorial](developers_documentation.md) - Build your own component
 
 ## Reference
 
@@ -25,4 +29,3 @@ New to DoenetML? Start here:
 
 - Check out our [FAQ](faq.md)
 - Report issues on [GitHub](https://github.com/yourusername/DoenetML-documentation/issues)
-EOF

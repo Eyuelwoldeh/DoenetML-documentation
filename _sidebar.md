@@ -1,4 +1,3 @@
-cat > _sidebar.md << 'EOF'
 * Getting Started
   * [Home](/)
   * [Installation](installation.md)
@@ -10,4 +9,3 @@ cat > _sidebar.md << 'EOF'
 
 * Help
   * [FAQ](faq.md)
-EOF
