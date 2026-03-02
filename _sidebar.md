@@ -7,5 +7,8 @@
   * [API Reference](api.md)
   * [Examples](examples.md)
 
+* Developer Guides
+  * [Creating Components](creating-components.md)
+
 * Help
   * [FAQ](faq.md)

@@ -18,7 +18,7 @@ New to DoenetML? Start here:
   - [Quick Start Tutorial](quickstart.md) — Build your first interactive element
 
 - **Developers:**
-  - [Component Building Tutorial](developers_documentation.md) - Build your own component
+  - [Component Building Tutorial](creating-components.md) - Build your own component
 
 ## Reference
 
