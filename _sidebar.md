@@ -9,6 +9,12 @@
 
 * Developer Guides
   * [Creating Components](creating-components.md)
+  * [Component Types](component-types.md)
+    * [Inline](component-types/inline.md)
+    * [Graphical](component-types/graphical.md)
+    * [Composite](component-types/composite.md)
+    * [Input](component-types/input.md)
+    * [Block](component-types/block.md)
 
 * Help
   * [FAQ](faq.md)
