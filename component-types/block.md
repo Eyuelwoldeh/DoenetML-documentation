@@ -1,18 +1,18 @@
 # Block Components
 
-components that take up a full block of space in the document, like a paragraph, a figure, a table, or a section. they are not inline and usually wrap children.
+block-level layout components like paragraphs, figures, tables.
 
-**base class:** `BlockComponent` (or `SectioningComponent` for things like sections and chapters)
+**base class:** `BlockComponent` (or `SectioningComponent` for sections)
 
 **examples:** `P.js`, `Figure.js`, `Table.js`, `Image.js`, `Video.js`, `Section.js`
 
-**renderer:** usually a React component that renders its children inside some HTML wrapper element
-
-these are the structurally simplest type. they mostly just declare what children they accept and let the system handle rendering of those children.
+**renderer:** usually renders children inside a div/section/table HTML structure
 
 ---
 
 ## basic structure
+
+block components are the simplest structurally. they mostly just accept and pass through children.
 
 ```js
 import BlockComponent from "./abstract/BlockComponent";
@@ -20,35 +20,44 @@ import BlockComponent from "./abstract/BlockComponent";
 export default class MyBlock extends BlockComponent {
     static componentType = "myBlock";
 
-    static createAttributesObject() {
-        let attributes = super.createAttributesObject();
-
-        // add any block-specific attributes here
-        attributes.width = {
-            createComponentOfType: "number",
-            createStateVariable: "width",
-            defaultValue: 100,
-            public: true,
-            forRenderer: true,
-        };
-
-        return attributes;
-    }
-
-    // declare the children this block can accept.
-    // "_base" means any component type (the base of the whole tree).
     static returnChildGroups() {
         return [
+            // _base accepts basically anything as a child
             { group: "anything", componentTypes: ["_base"] },
         ];
     }
+}
+```
 
-    static returnStateVariableDefinitions() {
-        let stateVariableDefinitions = super.returnStateVariableDefinitions();
-        // for most block components, you do not need to add much here.
-        // the children render themselves, and this component just wraps them.
-        return stateVariableDefinitions;
-    }
+that's it for a minimal block component. it accepts any children and renders them inside a block-level element.
+
+---
+
+## adding attributes
+
+if your block component needs configuration, add attributes the same way as any other component:
+
+```js
+static createAttributesObject() {
+    let attributes = super.createAttributesObject();
+
+    attributes.width = {
+        createComponentOfType: "text",
+        createStateVariable: "width",
+        defaultValue: "100%",
+        public: true,
+        forRenderer: true,
+    };
+
+    attributes.border = {
+        createComponentOfType: "boolean",
+        createStateVariable: "border",
+        defaultValue: false,
+        public: true,
+        forRenderer: true,
+    };
+
+    return attributes;
 }
 ```
 
@@ -56,36 +65,34 @@ export default class MyBlock extends BlockComponent {
 
 ## the renderer side
 
-block component renderers are usually straightforward. they wrap their children in an HTML element:
+block component renderers are usually straightforward React components that wrap children in an HTML element:
 
-```tsx
+```jsx
 import React from "react";
 import useDoenetRenderer from "../useDoenetRenderer";
 
-export default function MyBlock(props: any) {
-    // children from useDoenetRenderer is the rendered output of the component's children.
-    // you usually just place it inside your wrapper.
-    const { id, SVs, children } = useDoenetRenderer(props);
+export default React.memo(function MyBlock(props) {
+    let { name, id, SVs, children } = useDoenetRenderer(props);
 
     if (SVs.hidden) return null;
 
+    let style = {};
+    if (SVs.width) {
+        style.width = SVs.width;
+    }
+    if (SVs.border) {
+        style.border = "1px solid #ccc";
+    }
+
     return (
-        <div id={id} style={{ width: SVs.width }}>
+        <div id={id} style={style}>
             {children}
         </div>
     );
-}
+});
 ```
 
 the key difference from other renderers: block components usually just render `{children}` and let the child components handle their own rendering.
-
----
-
-## what BlockComponent gives you for free
-
-- `hidden`: whether the component is visible
-- `disabled`: whether the component is interactive
-- basic child rendering infrastructure
 
 ---
 
@@ -116,6 +123,14 @@ export default class MySection extends SectioningComponent {
 
 ---
 
+## what BlockComponent gives you for free
+
+- `hidden` -- whether the component is visible
+- `disabled` -- whether the component is interactive
+- basic child rendering infrastructure
+
+---
+
 ## child groups
 
 the `returnChildGroups()` method defines what types of children your block can contain:
@@ -134,6 +149,8 @@ static returnChildGroups() {
 ```
 
 using `["_base"]` as the component type means "accept any component". this is common for layout containers that don't care what's inside them.
+
+if you want to accept both inline and block children, just use `["_base"]`. the system will figure out the rendering order.
 
 ---
 
@@ -171,10 +188,10 @@ static returnStateVariableDefinitions() {
 
 ## common mistakes with block components
 
-1. **forgetting to render `{children}`**: if your renderer doesn't include `{children}`, the child components won't show up
+1. **forgetting to render `{children}`** -- if your renderer doesn't include `{children}`, the child components won't show up
 
-2. **using the wrong base class**: if your component needs title/section number support, use `SectioningComponent` not `BlockComponent`
+2. **using the wrong base class** -- if your component needs title/section number support, use `SectioningComponent` not `BlockComponent`
 
-3. **restrictive child groups**: if users complain they can't put certain things inside your component, check your `returnChildGroups()`. using `["_base"]` is the safe catch-all
+3. **restrictive child groups** -- if users complain they can't put certain things inside your component, check your `returnChildGroups()`. using `["_base"]` is the safe catch-all
 
-4. **not handling `SVs.hidden`**: always check this and return null if hidden. otherwise the component will render even when the user sets `hidden="true"`
+4. **not handling `SVs.hidden`** -- always check this and return null if hidden. otherwise the component will render even when the user sets `hidden="true"`
