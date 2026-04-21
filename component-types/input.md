@@ -10,6 +10,12 @@ things the user can type into or interact with.
 
 ---
 
+## how they differ from regular inline components
+
+the key difference is that input components have essential state. this means their `value` persists even if nothing is providing it from the outside. when the user types something, the renderer calls an action, which calls `performUpdate`, which stores the new value as essential state, which the renderer reads back next render.
+
+---
+
 ## basic structure
 
 ```js
@@ -18,6 +24,7 @@ import Input from "./abstract/Input";
 export default class MyInput extends Input {
     constructor(args) {
         super(args);
+        // actions the renderer will call when the user interacts
         Object.assign(this.actions, {
             updateValue: this.updateValue.bind(this),
         });
@@ -27,7 +34,16 @@ export default class MyInput extends Input {
 
     static createAttributesObject() {
         let attributes = super.createAttributesObject();
-        // Input base gives you: disabled, hidden, fixed, prefill, etc.
+        // Input base already gives you: disabled, hidden, fixed, size, prefill, bindValueTo, etc.
+
+        // add a prefill if you want to provide a starting value
+        attributes.prefill = {
+            createComponentOfType: "text",
+            createStateVariable: "prefill",
+            defaultValue: "",
+            public: true,
+        };
+
         return attributes;
     }
 
@@ -37,12 +53,37 @@ export default class MyInput extends Input {
         stateVariableDefinitions.value = {
             public: true,
             forRenderer: true,
+            // hasEssential: true means the value can persist without any child or
+            // attribute providing it. this is what makes input components work.
             hasEssential: true,
-            defaultValue: "",
-            returnDependencies: () => ({}),
-            definition() {
+            returnDependencies: () => ({
+                prefill: {
+                    dependencyType: "stateVariable",
+                    variableName: "prefill",
+                },
+            }),
+            definition({ dependencyValues }) {
+                // useEssentialOrDefaultValue tells the system to use whatever was
+                // stored in essential state (from a previous updateValue call),
+                // and if nothing is stored yet, use the provided defaultValue.
                 return {
-                    useEssentialOrDefaultValue: { value: true },
+                    useEssentialOrDefaultValue: {
+                        value: { defaultValue: dependencyValues.prefill },
+                    },
+                };
+            },
+            // inverseDefinition is called when something tries to set this variable
+            // from outside (like an answer check or a bindValueTo). it stores the
+            // new value as essential state.
+            inverseDefinition({ desiredStateVariableValues }) {
+                return {
+                    success: true,
+                    instructions: [
+                        {
+                            setEssentialValue: "value",
+                            value: desiredStateVariableValues.value,
+                        },
+                    ],
                 };
             },
         };
@@ -50,14 +91,25 @@ export default class MyInput extends Input {
         return stateVariableDefinitions;
     }
 
+    // this action is called by the renderer when the user changes the input
     async updateValue({ newValue, actionId }) {
         await this.coreFunctions.performUpdate({
-            updateInstructions: [{
-                updateType: "updateValue",
-                componentName: this.componentName,
-                stateVariable: "value",
-                value: newValue,
-            }],
+            updateInstructions: [
+                {
+                    updateType: "updateValue",
+                    componentName: this.componentName,
+                    stateVariable: "value",
+                    value: newValue,
+                },
+            ],
+            actionId,
+            sourceInformation: { component: this },
+        });
+
+        // trigger any chained actions (like answer submission) if configured
+        await this.coreFunctions.triggerChainedActions({
+            triggeringAction: "updateValue",
+            componentName: this.componentName,
             actionId,
         });
     }
@@ -69,36 +121,45 @@ export default class MyInput extends Input {
 ## what Input gives you for free
 
 the `Input` base class (which extends `InlineComponent`) provides:
-- `disabled` -- prevents user interaction
-- `hidden` -- hides the input
-- `fixed` -- prevents changes
-- answer/scoring integration -- inputs can be connected to `<answer>` components
+- `disabled`: prevents user interaction
+- `hidden`: hides the input
+- `fixed`: prevents changes
+- `size`: controls display width
+- `prefill`: sets initial value
+- `bindValueTo`: connects the value to another component
+- answer/scoring integration: inputs can be connected to `<answer>` components
 
-these are all set up automatically. you just need to define your `value` state variable and your action handlers.
+look at `Input.js` to see the full list of state variables and actions you get automatically.
 
 ---
 
 ## essential values
 
-input components typically use `hasEssential: true` on their value state variable. this means the value persists even when nothing else defines it.
+`hasEssential: true` enables a state variable to store its own value independently. without this, a state variable always recomputes from its dependencies and you cannot "store" user input.
 
 ```js
 stateVariableDefinitions.value = {
     public: true,
     forRenderer: true,
     hasEssential: true,       // the value is stored internally
-    defaultValue: "",         // starting value if nothing else sets it
-    returnDependencies: () => ({}),
-    definition() {
-        // "use whatever was stored, or fall back to the default"
+    returnDependencies: () => ({
+        prefill: {
+            dependencyType: "stateVariable",
+            variableName: "prefill",
+        },
+    }),
+    definition({ dependencyValues }) {
+        // use whatever was stored, or fall back to the prefill value
         return {
-            useEssentialOrDefaultValue: { value: true },
+            useEssentialOrDefaultValue: {
+                value: { defaultValue: dependencyValues.prefill },
+            },
         };
     },
 };
 ```
 
-when the user types something and the `updateValue` action fires, `performUpdate` stores the new value as the essential value. on the next render, the definition reads it back with `useEssentialOrDefaultValue`.
+`useEssentialOrDefaultValue` is how you say "use the stored value if there is one, otherwise use this default."
 
 ---
 
@@ -137,10 +198,8 @@ async updateValue({ newValue, actionId, sourceInformation = {} }) {
 
 some inputs (like `mathInput`) distinguish between what the user is currently typing and the committed value:
 
-- `immediateValue` -- updates on every keystroke (for live preview)
-- `value` -- updates when the user presses enter or clicks away
-
-the pattern looks like:
+- `immediateValue`: updates on every keystroke (for live preview)
+- `value`: updates when the user presses enter or clicks away
 
 ```js
 stateVariableDefinitions.immediateValue = {
@@ -253,41 +312,14 @@ export default React.memo(function MyInput(props) {
 
 ---
 
-## prefill
-
-inputs often support a `prefill` attribute that sets the initial value before the user types anything. this is usually handled by checking if there's a prefill dependency and using it as the default:
-
-```js
-stateVariableDefinitions.value = {
-    public: true,
-    forRenderer: true,
-    hasEssential: true,
-    returnDependencies: () => ({
-        prefill: {
-            dependencyType: "stateVariable",
-            variableName: "prefill",
-        },
-    }),
-    definition({ dependencyValues }) {
-        return {
-            useEssentialOrDefaultValue: {
-                value: {
-                    defaultValue: dependencyValues.prefill || "",
-                },
-            },
-        };
-    },
-};
-```
-
----
-
 ## common mistakes with input components
 
-1. **forgetting `hasEssential: true`** -- without this, the value can't be stored when the user types. the input will appear to do nothing
+1. **forgetting `hasEssential: true`**: without this, the value can't be stored when the user types. the input will appear to do nothing
 
-2. **not using `transient: true` for immediate updates** -- keystroke-by-keystroke updates should be transient so they don't flood the undo history
+2. **forgetting `inverseDefinition`**: if you want other components (like `bindValueTo`) to be able to set this value from outside, you need an inverse definition that calls `setEssentialValue`
 
-3. **not handling `disabled`** -- always pass `SVs.disabled` to the actual form element so the input respects the disabled state
+3. **not using `transient: true` for immediate updates**: keystroke-by-keystroke updates should be transient so they don't flood the undo history
 
-4. **forgetting to commit on blur** -- if you only commit on enter, users who click away will lose their input
+4. **not handling `disabled`**: always pass `SVs.disabled` to the actual form element so the input respects the disabled state
+
+5. **forgetting to commit on blur**: if you only commit on enter, users who click away will lose their input

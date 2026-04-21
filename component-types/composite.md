@@ -1,12 +1,26 @@
 # Composite Components
 
-components that expand into other components. they don't render themselves -- they generate replacement components.
+components that expand into one or more other components. they do not render themselves. instead, they produce "replacement" components that each have their own rendering.
 
 **base class:** `CompositeComponent`
 
 **examples:** `NumberList.js`, `MathList.js`, `Sequence.js`, `Select.js`, `TextList.js`
 
-**renderer:** none! they expand into child components that each have their own renderer.
+**renderer:** none. the replacements they generate have their own renderers.
+
+---
+
+## how they work
+
+when the system encounters a composite component, it doesn't try to render it. instead it asks the component to produce a list of replacement components. those replacements are what actually get rendered.
+
+this is how `<sequence from="1" to="5" />` expands into five `<number>` components, or how `<numberList>3 1 4 1 5</numberList>` expands into five individual `<number>` components.
+
+the lifecycle is:
+1. component is created
+2. `createSerializedReplacements()` runs to produce the initial set of replacements
+3. whenever `readyToExpandWhenResolved` goes stale, `calculateReplacementChanges()` runs
+4. the system diffs the changes and updates the rendered output
 
 ---
 
@@ -18,11 +32,12 @@ import CompositeComponent from "./abstract/CompositeComponent";
 export default class MyList extends CompositeComponent {
     static componentType = "myList";
 
-    // this tells the system which state variable triggers replacement updates
+    // this tells the system which state variable to watch for triggering replacement rebuilds
     static stateVariableToEvaluateAfterReplacements = "readyToExpandWhenResolved";
 
-    // when another component uses this as an attribute, shadow this variable
-    static stateVariableToBeShadowed = "items";
+    // when another component uses this as an attribute (like numberList is used
+    // in graphical components), this is the state variable that gets exposed
+    static stateVariableToBeShadowed = "numbers";
 
     static returnChildGroups() {
         return [
@@ -33,6 +48,7 @@ export default class MyList extends CompositeComponent {
     static returnStateVariableDefinitions() {
         let stateVariableDefinitions = super.returnStateVariableDefinitions();
 
+        // count the children so we know how many replacements to create
         stateVariableDefinitions.numComponents = {
             public: true,
             returnDependencies: () => ({
@@ -43,15 +59,14 @@ export default class MyList extends CompositeComponent {
             }),
             definition({ dependencyValues }) {
                 return {
-                    setValue: {
-                        numComponents: dependencyValues.children.length,
-                    },
+                    setValue: { numComponents: dependencyValues.children.length },
                 };
             },
         };
 
-        // this is the standard trigger pattern
-        // when numComponents goes stale, it tells the system to update replacements
+        // readyToExpandWhenResolved is the standard trigger variable for composites.
+        // when it goes stale (because numComponents changed), the system knows to
+        // call calculateReplacementChanges.
         stateVariableDefinitions.readyToExpandWhenResolved = {
             returnDependencies: () => ({
                 numComponents: {
@@ -59,6 +74,8 @@ export default class MyList extends CompositeComponent {
                     variableName: "numComponents",
                 },
             }),
+            // markStale is special: returning updateReplacements: true tells the
+            // system that replacements need to be recalculated when this goes stale.
             markStale: () => ({ updateReplacements: true }),
             definition() {
                 return { setValue: { readyToExpandWhenResolved: true } };
@@ -68,14 +85,16 @@ export default class MyList extends CompositeComponent {
         return stateVariableDefinitions;
     }
 
-    // creates the initial replacement components
+    // createSerializedReplacements runs once when the component is first created.
+    // it returns a list of component definitions.
+    // nComponents is a running count of all components in the document, used to
+    // give each replacement a unique index.
     static async createSerializedReplacements({ component, workspace, nComponents }) {
         let numComponents = await component.stateValues.numComponents;
         let replacements = [];
 
         for (let i = 0; i < numComponents; i++) {
             replacements.push({
-                type: "serialized",
                 componentType: "number",
                 componentIdx: nComponents++,
                 attributes: {},
@@ -89,20 +108,34 @@ export default class MyList extends CompositeComponent {
         return { replacements, errors: [], warnings: [], nComponents };
     }
 
-    // updates replacements when things change
-    static async calculateReplacementChanges({ component, workspace, nComponents }) {
-        // simplest approach: just recreate all replacements
+    // calculateReplacementChanges runs when state changes.
+    // the simplest approach is to recreate all replacements.
+    // for better performance in large components, do a diff and only add/remove what changed.
+    static async calculateReplacementChanges({
+        component,
+        workspace,
+        nComponents,
+        componentInfoObjects,
+    }) {
         let result = await this.createSerializedReplacements({
-            component, workspace, nComponents,
+            component,
+            workspace,
+            nComponents,
+            componentInfoObjects,
         });
+
         return {
-            replacementChanges: [{
-                changeType: "add",
-                changeTopLevelReplacements: true,
-                firstReplacementInd: 0,
-                numberReplacementsToReplace: component.replacements.length,
-                serializedReplacements: result.replacements,
-            }],
+            replacementChanges: [
+                {
+                    changeType: "add",
+                    changeTopLevelReplacements: true,
+                    firstReplacementInd: 0,
+                    numberReplacementsToReplace: component.replacements
+                        ? component.replacements.length
+                        : 0,
+                    serializedReplacements: result.replacements,
+                },
+            ],
             nComponents: result.nComponents,
         };
     }
@@ -111,23 +144,9 @@ export default class MyList extends CompositeComponent {
 
 ---
 
-## how it works conceptually
-
-when the system encounters a composite component, it doesn't try to render it. instead it asks the component to produce a list of replacement components. those replacements are what actually get rendered.
-
-for example, `<numberList>1 2 3</numberList>` doesn't render as a list element. it expands into three separate `<number>` components that each render individually.
-
-the lifecycle is:
-1. component is created
-2. `createSerializedReplacements()` runs to produce the initial set of replacements
-3. whenever `readyToExpandWhenResolved` goes stale, `calculateReplacementChanges()` runs
-4. the system diffs the changes and updates the rendered output
-
----
-
 ## the trigger pattern
 
-the `readyToExpandWhenResolved` + `markStale` combo is the standard way to tell the system "hey, my replacements need to be updated":
+the `readyToExpandWhenResolved` + `markStale` combo is the standard way to tell the system that replacements need updating. copy it from any existing composite component:
 
 ```js
 stateVariableDefinitions.readyToExpandWhenResolved = {
@@ -138,7 +157,7 @@ stateVariableDefinitions.readyToExpandWhenResolved = {
             variableName: "numComponents",
         },
     }),
-    // this is the key part -- tells the system to call calculateReplacementChanges
+    // this is the key part: tells the system to call calculateReplacementChanges
     markStale: () => ({ updateReplacements: true }),
     definition() {
         return { setValue: { readyToExpandWhenResolved: true } };
@@ -146,12 +165,10 @@ stateVariableDefinitions.readyToExpandWhenResolved = {
 };
 ```
 
-you also need to set the static property:
+you also need the static property:
 ```js
 static stateVariableToEvaluateAfterReplacements = "readyToExpandWhenResolved";
 ```
-
-this tells the system which state variable to evaluate to decide if replacements need updating.
 
 ---
 
@@ -165,7 +182,7 @@ the `calculateReplacementChanges` method returns an array of change objects. eac
     changeType: "add",
     changeTopLevelReplacements: true,
     firstReplacementInd: 0,
-    numberReplacementsToReplace: component.replacements.length,
+    numberReplacementsToReplace: component.replacements ? component.replacements.length : 0,
     serializedReplacements: newReplacements,
 }
 
@@ -187,19 +204,19 @@ the `calculateReplacementChanges` method returns an array of change objects. eac
 }
 ```
 
-for simple cases, the easiest approach is just to replace everything every time. for performance-sensitive cases (like large lists), you can compute a more surgical diff.
+for simple cases, replacing everything every time is fine. for performance-sensitive cases (like large lists), compute a more surgical diff.
 
 ---
 
 ## shadowing
 
-`stateVariableToBeShadowed` controls what happens when another component uses this composite as an attribute value:
+`stateVariableToBeShadowed` controls what happens when another component uses this composite as an attribute value.
+
+for example, when you write `values="3 1 4 1 5"` on a graphical component and the attribute type is `numberList`, the graphical component gets access to the shadowed variable of the `numberList`. that's how it can read `.stateValues.numbers` from it.
 
 ```js
-static stateVariableToBeShadowed = "items";
+static stateVariableToBeShadowed = "numbers";
 ```
-
-this means if someone writes `<myComponent list="$myList" />`, the system will shadow the `items` state variable from the composite.
 
 ---
 
@@ -221,10 +238,12 @@ let previousCount = workspace.numComponents;
 
 ## common mistakes with composite components
 
-1. **forgetting `stateVariableToEvaluateAfterReplacements`** -- without this static property, the system doesn't know to check for replacement updates
+1. **forgetting `stateVariableToEvaluateAfterReplacements`**: without this static property, the system doesn't know to check for replacement updates
 
-2. **forgetting `markStale: () => ({ updateReplacements: true })`** -- this is what actually triggers the replacement update. without it, `readyToExpandWhenResolved` is just a normal state variable
+2. **forgetting `markStale: () => ({ updateReplacements: true })`**: this is what actually triggers the replacement update. without it, `readyToExpandWhenResolved` is just a normal state variable
 
-3. **not tracking `nComponents`** -- every replacement needs a unique `componentIdx`. pass `nComponents` through and increment it for each new replacement, then return the updated count
+3. **not tracking `nComponents`**: every replacement needs a unique `componentIdx`. pass `nComponents` through, increment it for each new replacement, then return the updated count
 
-4. **mutating the workspace incorrectly** -- workspace persists between calls. if you store arrays or objects in it, be careful about mutation vs replacement
+4. **not guarding against null replacements**: when first expanding, `component.replacements` may be undefined. always use `component.replacements ? component.replacements.length : 0`
+
+5. **mutating the workspace incorrectly**: workspace persists between calls. if you store arrays or objects in it, be careful about mutation vs replacement
