@@ -6,7 +6,7 @@
 
 DoenetML components are JavaScript classes that define interactive educational elements. each component has attributes users can set, state variables that hold reactive data, and a renderer that displays things on screen.
 
-this guide uses the `Integer` component as a real example — specifically the work done to add binary and hexadecimal support.
+this guide uses the `Integer` component as a real example -- specifically the work done to add binary and hexadecimal support.
 
 ### what you'll need to know first
 
@@ -47,7 +47,7 @@ components extend each other. for example, `Integer.js` extends `Number.js`, whi
 
 ---
 
-## step 1 — adding attributes
+## step 1 -- adding attributes
 
 attributes are the things users put on a tag:
 
@@ -74,11 +74,11 @@ static createAttributesObject() {
 }
 ```
 
-> **note:** always call `super.createAttributesObject()` and extend the result — don't replace it. if you do `return { myAttr: ... }` without calling super, you lose all the parent's attributes.
+> **note:** always call `super.createAttributesObject()` and extend the result -- don't replace it. if you do `return { myAttr: ... }` without calling super, you lose all the parent's attributes.
 
 ---
 
-## step 2 — defining state variables
+## step 2 -- defining state variables
 
 state variables hold the component's reactive data. they recompute automatically when their dependencies change. you define them in `returnStateVariableDefinitions()`.
 
@@ -106,7 +106,7 @@ stateVariableDefinitions.myVariable = {
         };
     },
 
-    // optional — used for two-way binding (when you need changes to propagate back)
+    // optional -- used for two-way binding (when you need changes to propagate back)
     async inverseDefinition({ desiredStateVariableValues, dependencyValues }) {
         return {
             success: true,
@@ -124,24 +124,24 @@ stateVariableDefinitions.myVariable = {
 when a user writes `<integer>1001</integer>`, the `1001` becomes a **string child**. string children are raw strings, not objects. this trips people up a lot:
 
 ```javascript
-// string children — raw strings, access directly
+// string children -- raw strings, access directly
 let str = dependencyValues.stringChildren[0]; // "1001"
 
-// text children — component objects, use .stateValues
+// text children -- component objects, use .stateValues
 let str = dependencyValues.textChildren[0].stateValues.value; // "1001"
 
-// number children — component objects, use .stateValues
+// number children -- component objects, use .stateValues
 let num = dependencyValues.numberChildren[0].stateValues.value; // 1001
 
-// math children — component objects, need to evaluate
+// math children -- component objects, need to evaluate
 let val = dependencyValues.mathChildren[0].stateValues.value.evaluate_to_constant();
 ```
 
-> **don't do this:** `dependencyValues.stringChildren[0].stateValues.value` — strings don't have `.stateValues`, so this crashes.
+> **don't do this:** `dependencyValues.stringChildren[0].stateValues.value` -- strings don't have `.stateValues`, so this crashes.
 
 ---
 
-## step 3 — overriding parent state variables
+## step 3 -- overriding parent state variables
 
 since `Integer` extends `Number`, it inherits all of Number's state variables. to replace one:
 
@@ -176,7 +176,7 @@ or you can just add new state variables without touching the existing ones.
 
 ---
 
-## step 4 — adding representation state variables
+## step 4 -- adding representation state variables
 
 a nice pattern for formatting is to expose each format as its own state variable. users can then access `$a.binary`, `$a.hexadecimal`, `$a.decimal` independently.
 
@@ -216,7 +216,7 @@ do the same thing for `hexadecimal` and `decimal`.
 
 ---
 
-## step 5 — updating the `text` state variable
+## step 5 -- updating the `text` state variable
 
 the `text` state variable is what the renderer actually displays. if your component supports multiple representations, override it to show the right one.
 
@@ -224,7 +224,7 @@ the `text` state variable is what the renderer actually displays. if your compon
 stateVariableDefinitions.text = {
     public: true,
     shadowingInstructions: { createComponentOfType: "text" },
-    forRenderer: true,  // don't forget this — the renderer reads `text`
+    forRenderer: true,  // don't forget this -- the renderer reads `text`
     returnDependencies: () => ({
         representation: {
             dependencyType: "stateVariable",
@@ -257,7 +257,7 @@ stateVariableDefinitions.text = {
         return { setValue: { text } };
     },
 
-    // inverse definition — parses user input back to decimal
+    // inverse definition -- parses user input back to decimal
     async inverseDefinition({ desiredStateVariableValues, dependencyValues }) {
         let desiredText = desiredStateVariableValues.text;
         let representation = dependencyValues.representation;
@@ -288,7 +288,7 @@ stateVariableDefinitions.text = {
 
 ---
 
-## step 6 — helper functions
+## step 6 -- helper functions
 
 put utility functions outside the class at the bottom of the file. keep them focused, validate input early, and return consistent types.
 
@@ -342,7 +342,7 @@ function parseHexadecimal(str) {
 
 ---
 
-## step 7 — building and testing
+## step 7 -- building and testing
 
 DoenetML uses a monorepo with a build chain. after changing a component file, you need to rebuild:
 
@@ -440,16 +440,16 @@ return { success: false };
 
 ---
 
-## how it all fits together — the integer example
+## how it all fits together -- the integer example
 
 here's the full data flow when a user writes `<integer representation="binary">1001</integer>`:
 
-1. **attribute is read** — `representation = "binary"`
-2. **string child is parsed** — `"1001"` is passed to `parseBinary()` → returns `9`
-3. **value is stored** — internally stored as `9` (always decimal)
-4. **representation variables computed** — `binary = "1001"`, `decimal = "9"`, `hexadecimal = "9"`
-5. **text is determined** — since `representation = "binary"`, `text = "1001"`
-6. **renderer displays** — `"1001"`
+1. **attribute is read** -- `representation = "binary"`
+2. **string child is parsed** -- `"1001"` is passed to `parseBinary()` → returns `9`
+3. **value is stored** -- internally stored as `9` (always decimal)
+4. **representation variables computed** -- `binary = "1001"`, `decimal = "9"`, `hexadecimal = "9"`
+5. **text is determined** -- since `representation = "binary"`, `text = "1001"`
+6. **renderer displays** -- `"1001"`
 
 users can then access:
 
@@ -468,7 +468,7 @@ $a.hexadecimal  <!-- 9 -->
 
 **1. accessing string children like objects**
 ```javascript
-// wrong — crashes because strings don't have .stateValues
+// wrong -- crashes because strings don't have .stateValues
 let val = dependencyValues.stringChildren[0].stateValues.value;
 
 // correct
@@ -486,7 +486,7 @@ if you override `text` without `forRenderer: true`, the renderer won't pick it u
 **4. using `||` as a numeric fallback**
 
 ```javascript
-// bug — 0 is falsy, so this would replace 0 with the default
+// bug -- 0 is falsy, so this would replace 0 with the default
 return { setValue: { value: parsedValue || NaN } };
 
 // correct
@@ -500,7 +500,7 @@ if variable A depends on B and B depends on A, things break silently. sketch out
 **6. replacing parent attributes instead of extending them**
 
 ```javascript
-// wrong — wipes out all parent attributes
+// wrong -- wipes out all parent attributes
 static createAttributesObject() {
     return { myAttr: { ... } };
 }
@@ -534,6 +534,6 @@ use this when adding a new feature:
 
 ## additional resources
 
-- **existing components:** `packages/doenetml-worker-javascript/src/components/` — look at `Number.js` and `Text.js` for common patterns
+- **existing components:** `packages/doenetml-worker-javascript/src/components/` -- look at `Number.js` and `Text.js` for common patterns
 - **utilities:** `packages/doenetml-worker-javascript/src/utils/`
 - **test viewer:** `packages/test-viewer/` for manual testing

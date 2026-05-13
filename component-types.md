@@ -7,11 +7,26 @@ every component lives in:
 packages/doenetml-worker-javascript/src/components/
 ```
 
-every component is a JS class that extends one of the abstract base classes in `abstract/`. the base class you extend determines what kind of component you're building.
+every component is a JS class that extends one of the abstract base classes in `abstract/`. the base class you extend determines what kind of component you're building, what lifecycle methods you get for free, and what the renderer can expect from it.
+
+---
+
+## how components work in general
+
+before diving into the types, here's the overall flow so the rest makes sense:
+
+1. doenetML content gets parsed into a tree of components
+2. each component's `.js` file runs in a **web worker** (not the browser tab). this is where state is computed and stored
+3. state variables marked `forRenderer: true` get passed across to the browser
+4. each component's renderer (`.jsx` or `.tsx`) runs in the browser and draws the component using those state values
+5. when the user does something (clicks, drags, types), the renderer fires an **action** back to the worker, the worker updates state, and the new state flows back to the renderer
+
+so the `.js` file is the brain, the renderer is the face, and actions are how they talk to each other. keep that picture in your head while reading the type-specific pages.
 
 ---
 
 ## the inheritance tree (simplified)
+
 
 ```
 BaseComponent
@@ -100,7 +115,40 @@ return { setValue: { myVar: 42 } };
 return { useEssentialOrDefaultValue: { myVar: { defaultValue: 0 } } };
 ```
 
+## quick reference: dependency types
+
+```js
+returnDependencies: () => ({
+    // depend on a state variable on this same component
+    myOtherVar: {
+        dependencyType: "stateVariable",
+        variableName: "myOtherVar",
+    },
+
+    // depend on children in a named group
+    numberChildren: {
+        dependencyType: "child",
+        childGroups: ["numbers"],
+        variableNames: ["value"], // which state vars to pull from each child
+    },
+
+    // depend on an attribute component (for complex attribute types like numberList)
+    values: {
+        dependencyType: "attributeComponent",
+        attributeName: "values",
+        variableNames: ["numbers", "numComponents"],
+    },
+
+    // depend on the parent component's state
+    parentValue: {
+        dependencyType: "parentStateVariable",
+        variableName: "someValue",
+    },
+}),
+```
+
 ## quick reference: child access
+
 
 ```js
 // string children are raw strings

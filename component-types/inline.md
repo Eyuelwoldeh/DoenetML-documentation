@@ -75,6 +75,8 @@ export default class MyComponent extends InlineComponent {
 - string children are raw strings, NOT objects -- use `dependencyValues.stringChildren[0]` directly, not `.stateValues.value`
 - number/math/text children ARE objects -- use `child.stateValues.value`
 - if extending an existing component (like Integer extends Number), you can `delete stateVariableDefinitions.value` to replace the parent's version
+- the `text` state variable (what gets displayed as a string) is often separate from `value` (the actual data type). for example, `Integer` has `value = 9` (a number) but `text = "1001"` (what's shown when representation is binary)
+
 
 ---
 

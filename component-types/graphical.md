@@ -327,7 +327,210 @@ previousNumPoints.current = currentCount;
 
 ---
 
+## sub-pattern: interactive graphical components with public mutable state
+
+this is what you reach for when you need a graphical widget whose internal state (a) is publicly queryable from `<answer>` (e.g. `$mem.cellValue7`, `$mem.pointer1`), (b) can be mutated by the user typing or interacting, and (c) lives in arrays whose size is determined by an attribute. the `arrayComponent` (memory-diagram widget) was built this way, and the steps below capture every concrete trap that came up while building it.
+
+the recipe has four moving parts:
+1. public array state vars with **essential** storage
+2. actions that mutate those vars
+3. a renderer that draws on the JSXGraph board and fires actions on user input
+4. registration in `ComponentTypes.js`
+
+### 1. public, mutable array state variables
+
+use this exact shape (this is the pattern matching `Vector.js` for `displacement2`):
+
+```js
+stateVariableDefinitions.cellValues = {
+    public: true,
+    shadowingInstructions: { createComponentOfType: "text" },
+    isArray: true,
+    entryPrefixes: ["cellValue"],          // -> $mem.cellValue1, $mem.cellValue2, ...
+    forRenderer: true,                     // ship the whole array to the browser
+    hasEssential: true,                    // store user-set values in an essential slot
+    essentialVarName: "cellValues",        // name of that slot
+    defaultValueByArrayKey: () => "?",     // default for any cell that hasn't been set
+
+    returnArraySizeDependencies: () => ({
+        size: { dependencyType: "stateVariable", variableName: "size" },
+    }),
+    returnArraySize({ dependencyValues }) {
+        return [Math.max(0, Number(dependencyValues.size) || 0)];
+    },
+
+    returnArrayDependenciesByKey: () => ({}),
+
+    // must return useEssentialOrDefaultValue for every requested key.
+    // returning {} here is a silent footgun: the entry refs resolve to nothing
+    // and you'll see "Neither value nor default value specified" errors.
+    arrayDefinitionByKey({ arrayKeys }) {
+        let useEssentialOrDefaultValue = {};
+        for (let key of arrayKeys) {
+            useEssentialOrDefaultValue[key] = { defaultValue: "?" };
+        }
+        return { useEssentialOrDefaultValue: { cellValues: useEssentialOrDefaultValue } };
+    },
+
+    // inverse: take desired changes from an action and persist them into essential storage
+    async inverseArrayDefinitionByKey({ desiredStateVariableValues }) {
+        return {
+            success: true,
+            instructions: [{
+                setEssentialValue: "cellValues",
+                value: Object.fromEntries(
+                    Object.entries(desiredStateVariableValues.cellValues)
+                          .map(([k, v]) => [k, String(v)]),
+                ),
+            }],
+        };
+    },
+};
+```
+
+key points that cost real time to discover:
+
+- `entryPrefixes: ["cellValue"]` is what makes `$mem.cellValue7` resolve. bracket-notation array refs like `$mem.cellValues[7]` do **not** currently resolve into a scalar usable by `<when>`/`<number>`. always design your entry prefix so it reads nicely (`cellValue7`, `pointer1`)
+- doenetML's entry-prefix references are **1-indexed**. internal array keys are 0-indexed strings (`"0"`, `"1"`, ...). so `$mem.cellValue7` reads key `"6"`. plan your `<answer>` references accordingly
+- `defaultValueByArrayKey` alone is **not** enough. you must also produce `useEssentialOrDefaultValue` from `arrayDefinitionByKey` for the requested keys, otherwise the entries never get instantiated
+- `forRenderer: true` is required to expose the whole array as `SVs.cellValues` on the renderer side
+
+### 2. actions that mutate the state
+
+register actions in the constructor (rest of the class is unchanged):
+
+```js
+constructor(args) {
+    super(args);
+    Object.assign(this.actions, {
+        setCellValue: this.setCellValue.bind(this),
+        setPointerY: this.setPointerY.bind(this),
+    });
+}
+
+async setCellValue({ index, value, actionId, sourceInformation = {}, skipRendererUpdate = false }) {
+    await this.coreFunctions.performUpdate({
+        updateInstructions: [{
+            updateType: "updateValue",
+            componentIdx: this.componentIdx,        // NOT this.componentName
+            stateVariable: "cellValues",
+            value: { [index]: String(value) },
+        }],
+        actionId,
+        sourceInformation,
+        skipRendererUpdate,
+        event: {
+            verb: "interacted",
+            object: {
+                componentIdx: this.componentIdx,   // same here
+                componentType: this.componentType,
+            },
+            result: { index, value },
+        },
+    });
+}
+```
+
+the single most likely source of a silent `TypeError: Cannot read properties of undefined (reading 'constructor')` deep in `Core.requestComponentChanges` is using `componentName: this.componentName`. the field is named `componentIdx` (numeric), and the property on `this` is `this.componentIdx`. reference `TextInput.js` if you're ever unsure of the field shape for an action.
+
+### 3. renderer that draws on a JSXGraph board and fires actions
+
+the renderer is a `.tsx` in `packages/doenetml/src/Viewer/renderers/`. the skeleton:
+
+```tsx
+import React, { useContext, useEffect, useRef } from "react";
+import useDoenetRenderer from "../useDoenetRenderer";
+import { BoardContext, LINE_LAYER_OFFSET, TEXT_LAYER_OFFSET } from "./graph";
+
+export default React.memo(function MyWidget(props: any) {
+    const { id, SVs, actions, callAction } = useDoenetRenderer(props);
+    const board = useContext(BoardContext) as any;
+
+    // refs to every JSXGraph object so they can be removed on unmount
+    const jxgObjs = useRef<any[]>([]);
+    const previousStructure = useRef<number | null>(null);
+
+    useEffect(() => () => deleteAllJXG(), []);   // unmount cleanup
+
+    function buildAll() { /* board.create(...) for every line/text/input */ }
+    function deleteAllJXG() {
+        jxgObjs.current.forEach(o => o && board?.removeObject(o));
+        jxgObjs.current = [];
+    }
+
+    // build on first render or when structural attributes change.
+    // for value-only updates (typing into a cell), sync DOM inputs without rebuilding.
+    useEffect(() => {
+        if (!board) return;
+        const structureChanged = previousStructure.current !== SVs.size;
+        if (structureChanged) {
+            buildAll();
+            previousStructure.current = SVs.size;
+        } else {
+            // sync SVs.cellValues into the existing inputs
+        }
+    }, [board, SVs.size, SVs.cellValues /* etc. */]);
+
+    if (board) return null;       // graphics live on the board, not in the DOM tree
+    return <a id={id} />;          // off-graph fallback element (use id, not name)
+});
+```
+
+for typeable cells, `board.create("input", [x, y, initial, label], { fixed: true })` gives you an HTML `<input>` overlaid on the board. the reliable way to capture the user's value back into the worker:
+
+```tsx
+const dispatch = () => {
+    const v = inp.rendNodeInput?.value;
+    callAction({
+        action: actions.setCellValue,
+        args: { index: String(i), value: String(v ?? "") },
+    });
+};
+
+// belt-and-suspenders: attach every plausible event. JSXGraph wraps its input
+// in a way that means "change" alone occasionally doesn't fire.
+inp.rendNodeInput?.addEventListener("change", dispatch);
+inp.rendNodeInput?.addEventListener("blur",   dispatch);
+inp.rendNodeInput?.addEventListener("keyup",  (e: any) => { if (e.key === "Enter") dispatch(); });
+inp.on?.("change", dispatch);   // JSXGraph-native event, also fires in some cases
+```
+
+when you need a draggable pointer/arrow but want it **keyboard-accessible** instead of drag-only, render an input alongside the arrow where the user types a target value (e.g. an address). on `change`, parse the typed string against your address list and call `setPointerY` with the resulting row index. empty / invalid maps to `-1` (your "unplaced" sentinel) and hides the arrow via `visible: () => (SVs.pointerY || [])[p] >= 0`.
+
+other renderer gotchas:
+
+- all graphical positions and the `visible` flag should be **functions** when they depend on state, so JSXGraph re-evaluates them automatically when `board.update()` runs. e.g. `[() => xFn(), () => yFn()]` for a point's coords, `visible: () => SVs.foo >= 0` for conditional visibility
+- when syncing `SVs.cellValues` back into the DOM inputs, skip inputs the user is currently typing in (`document.activeElement !== inp.rendNodeInput`), otherwise you wipe their text mid-keystroke
+- the "off-graph fallback" element must use a valid HTML attribute. `<a name={id} />` is deprecated and gives a TypeScript error. use `<a id={id} />` instead
+
+### 4. register the component + renderer
+
+- worker side: add an import in `packages/doenetml-worker-javascript/src/ComponentTypes.js` and append it to the `componentTypeArray` (see "registering a new component" on the component-types page)
+- renderer side: map the component type to its renderer in the renderer registry. look at how `point` or `discreteGraph` is wired up, usually a single object literal in the renderer barrel file
+
+### build flow
+
+every code change requires a build of the affected packages before the test viewer sees it. there is no HMR across the worker boundary.
+
+| changed file | rebuild |
+|--------------|---------|
+| `MyComponent.js` (worker logic) | `doenetml-worker-javascript` then `doenetml-worker` |
+| `myComponent.tsx` (renderer) | `doenetml` |
+| both | all three |
+
+then **hard-refresh** the test viewer (cmd/ctrl-shift-r). a normal refresh may use the cached bundle.
+
+### debugging checklist when state isn't updating
+
+1. open the browser console and add a temporary `console.log` inside the renderer's dispatch closure. if it doesn't fire, your event wiring is wrong (see "belt-and-suspenders" above)
+2. if it does fire but state doesn't change, look for `TypeError: Cannot read properties of undefined (reading 'constructor')`. it means an update instruction is malformed. the two near-certain causes are `componentName` (should be `componentIdx`) and a missing/wrong `stateVariable` name
+3. drop `<p>DEBUG cellValue7 = $mem.cellValue7</p>` into your test doenet to confirm the entry-prefix reference resolves on the doenetML side. if it prints as empty or `NaN`, your `arrayDefinitionByKey` is not returning `useEssentialOrDefaultValue` correctly
+4. indices in `<when>`/`<answer>` are 1-based, renderer loop indices are 0-based, internal array keys are 0-based strings. mixing these up causes silent off-by-one wrong-answer marks
+
+---
+
 ## real example: LineSegment
+
 
 the LineSegment component is a good reference. it has:
 - two endpoints (a fixed-size array, always 2 points)
